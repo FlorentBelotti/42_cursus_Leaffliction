@@ -1,0 +1,7 @@
+numpy
+matplotlib
+plantcv
+PyQt5
+flake8
+tensorflow
+scikit-learn
