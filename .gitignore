@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+augmented_directory/
+verification_output/
+images/
+*.zip
