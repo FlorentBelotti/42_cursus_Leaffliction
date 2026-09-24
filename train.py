@@ -152,6 +152,16 @@ def build_model(num_classes, input_shape=IMG_SHAPE):
     )
     return model
 
+# Couche ->	Ce qu'elle fait
+# Rescaling(1/255) -> Ramène les pixels de 0-255 à 0-1	(petites valeurs rendent l'apprentissage plus stable)
+# Conv2D(32, 3) -> 32 filtres 3×3 glissent sur l'image, chaque filtre produit une feature map qui indique où il a trouvé son motif
+# activation="relu" -> les valeurs négatives passent à 0
+# MaxPooling2D() -> Garde le maximum de chaque carré 2×2, ce qui divise la taille par 2	(sésume l'information, réduit les calculs et tolère de petits décalages)
+# Les 3 blocs Conv/Pool -> Hiérarchie : bords, puis textures, puis motifs complexes (taches, lésions)
+# Flatten() -> Met la dernière feature en un vecteur (passage de img à liste de features)
+# Dense(128, relu) -> 128 neurones reliés à toutes les entrées	(combine les features pour raisonner)
+# Dropout(0.3) -> Éteint 30 % des neurones au hasard, seulement pendant l'entraînement (empêche le réseau de dépendre de quelques neurones)
+# Dense(N, softmax) -> N sorties transformées en probabilités dont la somme vaut 1
 
 def train_model(model, train_data, val_data, epochs=10):
     return model.fit(train_data, validation_data=val_data, epochs=epochs)
