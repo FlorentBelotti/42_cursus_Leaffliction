@@ -7,12 +7,14 @@ and saves the trained model together with the images used for
 training into a .zip archive.
 """
 import argparse
+import math
 import os
 import shutil
 import sys
 import tempfile
 from pathlib import Path
 
+import cv2
 from sklearn.model_selection import train_test_split
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -20,6 +22,7 @@ from tensorflow.keras import layers
 from leaffliction.dataset_balancing.dataset_balancing_pipeline import (
     run_dataset_balancing,
 )
+from leaffliction.leaf_segmentation import prepare_for_model
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 IMG_SHAPE = (256, 256, 3)
@@ -41,6 +44,26 @@ def load_dataset(src_dir):
         paths.append(path)
         labels.append(label)
     return paths, labels
+
+
+def check_dataset(labels, val_ratio):
+    # train_test_split(stratify=...) plante avec un message obscur si
+    # une classe a < 2 images ou si le val set est plus petit que le
+    # nombre de classes : on vérifie avant avec un message clair
+    classes = sorted(set(labels))
+    if len(classes) < 2:
+        raise ValueError(f"need at least 2 classes, found {len(classes)}")
+    for name in classes:
+        if labels.count(name) < 2:
+            raise ValueError(f"class '{name}' needs at least 2 images "
+                             "(one for training, one for validation)")
+    n_val = math.ceil(len(labels) * val_ratio)
+    n_train = len(labels) - n_val
+    if n_val < len(classes) or n_train < len(classes):
+        raise ValueError(
+            f"{len(labels)} image(s) with --val-ratio {val_ratio} leaves "
+            f"{n_train} for training and {n_val} for validation, "
+            f"need at least {len(classes)} (one per class) in each")
 
 
 def split_train_val(paths, labels, val_ratio=0.2, seed=42):
@@ -70,6 +93,25 @@ def augment_training_set(paths, labels, dst_dir):
         copy_images(paths, labels, staging_dir)
         run_dataset_balancing(Path(staging_dir), Path(dst_dir),
                               should_overwrite_destination=True)
+
+
+def segment_directory(directory):
+    # remplace chaque image par sa version détourée (fond blanc), la
+    # même que predict donnera au modèle ; repli sur l'image brute si
+    # la feuille n'est pas trouvée
+    total, fallback = 0, 0
+    for path, _ in find_images(directory):
+        bgr_img = cv2.imread(path)
+        if bgr_img is None:
+            raise ValueError(f"'{path}' is not a readable image")
+        rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+        model_img, segmented = prepare_for_model(rgb_img)
+        if not cv2.imwrite(path, cv2.cvtColor(model_img, cv2.COLOR_RGB2BGR)):
+            raise OSError(f"cannot write '{path}'")
+        total += 1
+        fallback += not segmented
+    print(f"Segmented {total - fallback}/{total} image(s) in '{directory}'"
+          f" ({fallback} kept raw: no leaf detected)")
 
 
 def load_split(directory, classes, shuffle):
@@ -146,10 +188,30 @@ def main():
     if not os.path.isdir(args.src):
         print(f"Error: '{args.src}' is not a directory", file=sys.stderr)
         sys.exit(1)
+    if not 0 < args.val_ratio < 1:
+        print("Error: --val-ratio must be between 0 and 1", file=sys.stderr)
+        sys.exit(1)
+    if args.epochs < 1:
+        print("Error: --epochs must be at least 1", file=sys.stderr)
+        sys.exit(1)
+    out_dir = os.path.dirname(os.path.abspath(args.output))
+    if not os.path.isdir(out_dir):
+        print(f"Error: output directory '{out_dir}' does not exist",
+              file=sys.stderr)
+        sys.exit(1)
 
+    try:
+        run(args)
+    except Exception as error:
+        print(f"Error: {error}", file=sys.stderr)
+        sys.exit(1)
+
+
+def run(args):
     paths, labels = load_dataset(args.src)
     classes = sorted(set(labels))
     print(f"Found {len(paths)} image(s) across {len(classes)} class(es)")
+    check_dataset(labels, args.val_ratio)
 
     train_paths, train_labels, val_paths, val_labels = split_train_val(
         paths, labels, val_ratio=args.val_ratio,
@@ -162,6 +224,8 @@ def main():
         val_dir = os.path.join(images_dir, "validation")
         augment_training_set(train_paths, train_labels, train_dir)
         copy_images(val_paths, val_labels, val_dir)
+        segment_directory(train_dir)
+        segment_directory(val_dir)
 
         train_data = load_split(train_dir, classes, shuffle=True)
         val_data = load_split(val_dir, classes, shuffle=False)

@@ -14,6 +14,8 @@ import numpy as np
 from plantcv import plantcv as pcv
 # librairie de traitement d'image dédiée aux plantes
 
+from leaffliction.leaf_segmentation import apply_leaf_mask, segment_leaf
+
 pcv.params.debug = None
 # désactive le mode debug de plantcv
 # (qui sinon sauvegarde des images à chaque étape sur disque)
@@ -23,6 +25,11 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 
 
 def read_image(path):
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"'{path}' is not a file")
+    # cv2.imread renvoie None (sans exception) si le fichier est illisible
+    if cv2.imread(path) is None:
+        raise ValueError(f"'{path}' is not a readable image")
     # (img, path, img_name) -> recup que l'image :
     bgr_img, _, _ = pcv.readimage(filename=path)
     return cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
@@ -31,19 +38,19 @@ def read_image(path):
 
 def save_image(path, rgb_img):
     bgr_img = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2BGR)
-    cv2.imwrite(path, bgr_img)  # attend du BGR
+    # attend du BGR ; renvoie False (sans exception) si l'écriture échoue
+    if not cv2.imwrite(path, bgr_img):
+        raise OSError(f"cannot write '{path}'")
 
 
 def compute_mask(rgb_img):
-    # canal "a" (LAB) : feuille (vert) valeur basse, fond valeur neutre
-    gray = pcv.rgb2gray_lab(rgb_img=rgb_img, channel="a")
-    # seuil auto pour séparer les pixels sombres (feuille) du reste
-    binary = pcv.threshold.otsu(gray_img=gray, object_type="dark")
-    # supprime les petits résidus de bruit du seuillage
-    filled = pcv.fill(bin_img=binary, size=50)
+    # segmentation du fond partagée avec train/predict (voir
+    # leaffliction/leaf_segmentation.py) ; lève ValueError si pas de
+    # feuille -> analyze/landmarks/histogram planteraient plus loin
+    mask = segment_leaf(rgb_img)
     # numérote le(s) objet(s) détecté(s) dans le masque (la feuille)
-    labeled_mask, n_obj = pcv.create_labels(mask=filled)
-    return filled, labeled_mask, n_obj
+    labeled_mask, n_obj = pcv.create_labels(mask=mask)
+    return mask, labeled_mask, n_obj
     # n_obj = nombre d'objets trouvés
 
 
@@ -53,7 +60,8 @@ def make_blur(mask):
 
 
 def make_mask(rgb_img, mask):
-    return pcv.apply_mask(img=rgb_img, mask=mask, mask_color="white")
+    # même fonction que l'image donnée au modèle dans train/predict
+    return apply_leaf_mask(rgb_img, mask)
     # pixels où mask == 0 (le fond) -> blancs
     # pixels où mask != 0 (la feuille) -> couleur d'origine
 
@@ -177,22 +185,36 @@ def find_images(src_dir):
 # nom dans des classes différentes s'écrasent)
 def process_directory(src_dir, dst_dir, selected):
     count = 0
+    failed = 0
     for path in find_images(src_dir):
-        rgb_img = read_image(path)
-        results = build_transformations(rgb_img, selected)
-        rel_dir = os.path.relpath(os.path.dirname(path), src_dir)
-        out_dir = os.path.join(dst_dir, rel_dir)
-        os.makedirs(out_dir, exist_ok=True)
-        base, ext = os.path.splitext(os.path.basename(path))
-        for name, img in results.items():
-            out_path = os.path.join(out_dir, f"{base}_{name}{ext}")
-            if name == "Histogram":
-                img.savefig(out_path)
-                plt.close(img)
-            else:
-                save_image(out_path, img)
-        count += 1
-    print(f"Transformed {count} image(s) into '{dst_dir}'")
+        # une image corrompue / sans feuille ne doit pas stopper le lot
+        try:
+            save_transformations(path, src_dir, dst_dir, selected)
+            count += 1
+        except Exception as error:
+            print(f"Skipped '{path}': {error}", file=sys.stderr)
+            failed += 1
+        finally:
+            plt.close("all")
+    if count == 0 and failed == 0:
+        raise ValueError(f"no image found in '{src_dir}'")
+    print(f"Transformed {count} image(s) into '{dst_dir}'"
+          + (f", {failed} skipped" if failed else ""))
+
+
+def save_transformations(path, src_dir, dst_dir, selected):
+    rgb_img = read_image(path)
+    results = build_transformations(rgb_img, selected)
+    rel_dir = os.path.relpath(os.path.dirname(path), src_dir)
+    out_dir = os.path.join(dst_dir, rel_dir)
+    os.makedirs(out_dir, exist_ok=True)
+    base, ext = os.path.splitext(os.path.basename(path))
+    for name, img in results.items():
+        out_path = os.path.join(out_dir, f"{base}_{name}{ext}")
+        if name == "Histogram":
+            img.savefig(out_path)
+        else:
+            save_image(out_path, img)
 
 
 def parse_args():
@@ -207,29 +229,29 @@ def parse_args():
     for name in TRANSFORMATIONS:
         parser.add_argument(f"-{name}", action="store_true",
                             help=f"Only generate the {name} transformation.")
-    return parser.parse_args()
+    return parser, parser.parse_args()
 
 
 def main():
-    args = parse_args()
+    parser, args = parse_args()
     active = [name for name in TRANSFORMATIONS if getattr(args, name)]
     selected = active or TRANSFORMATIONS
 
-    if args.image:
-        display_single_image(args.image, selected)
-        return
+    if args.image and (args.src or args.dst):
+        parser.error("give either an image or -src/-dst, not both")
+    if not args.image and not (args.src and args.dst):
+        parser.error("expected an image, or both -src and -dst")
+    if args.src and not os.path.isdir(args.src):
+        parser.error(f"'{args.src}' is not a directory")
 
-    if args.src and args.dst:
-        process_directory(args.src, args.dst, selected)
-        return
-
-    print(
-        "Usage: ./Transformation.py <image> | "
-        "-src <dir> -dst <dir> "
-        "[-blur|-mask|-roi|-analyze|-landmarks|-histogram]",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+    try:
+        if args.image:
+            display_single_image(args.image, selected)
+        else:
+            process_directory(args.src, args.dst, selected)
+    except Exception as error:
+        print(f"Error: {error}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

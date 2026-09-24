@@ -11,7 +11,7 @@ source .venv/bin/activate
 
 `setup.sh` crée un virtualenv dans `/goinfre/$USER/leaffliction_venv` (modifiable
 via `VENV_DIR`), le lie en `.venv` et installe les dépendances listées dans
-`requirements.txt` (numpy, matplotlib, plantcv, PyQt5, flake8, tensorflow,
+`requirements.txt` (numpy, matplotlib, plantcv, flake8, tensorflow,
 scikit-learn).
 
 ## Partie 3 : Transformation
