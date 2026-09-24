@@ -1,5 +1,6 @@
 numpy
 matplotlib
+pillow
 plantcv
 PyQt5
 flake8

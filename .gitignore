@@ -4,3 +4,5 @@ __pycache__/
 *.zip
 augmented_directory/
 dst_directory/
+verification_output/
+images/
