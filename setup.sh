@@ -5,14 +5,13 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-PYTHON="${PYTHON:-python3}"
-
+# python 3.12 : tensorflow n'a pas de version stable pour 3.14
 if [ ! -d ".venv" ]; then
-    "$PYTHON" -m venv .venv
+    uv python install 3.12
+    uv venv -p 3.12 .venv
 fi
 
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install -r requirements.txt
+VIRTUAL_ENV="$PWD/.venv" uv pip install -r requirements.txt
 
 echo ""
 echo "Setup complete. Activate the environment with:"

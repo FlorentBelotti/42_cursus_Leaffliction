@@ -172,17 +172,20 @@ def find_images(src_dir):
                 yield os.path.join(root, name)
 
 
-# crée dossier dest s'il existe pas
-# puis pour chaque img calcul transfos et les sauvegarde
+# pour chaque img calcul transfos et les sauvegarde dans dst_dir
+# en recréant les sous-dossiers de src_dir (sinon les images de même
+# nom dans des classes différentes s'écrasent)
 def process_directory(src_dir, dst_dir, selected):
-    os.makedirs(dst_dir, exist_ok=True)
     count = 0
     for path in find_images(src_dir):
         rgb_img = read_image(path)
         results = build_transformations(rgb_img, selected)
+        rel_dir = os.path.relpath(os.path.dirname(path), src_dir)
+        out_dir = os.path.join(dst_dir, rel_dir)
+        os.makedirs(out_dir, exist_ok=True)
         base, ext = os.path.splitext(os.path.basename(path))
         for name, img in results.items():
-            out_path = os.path.join(dst_dir, f"{base}_{name}{ext}")
+            out_path = os.path.join(out_dir, f"{base}_{name}{ext}")
             if name == "Histogram":
                 img.savefig(out_path)
                 plt.close(img)

@@ -1,8 +1,9 @@
-numpy
-matplotlib
-pillow
-plantcv
-PyQt5
-flake8
-tensorflow
-scikit-learn
+numpy==2.5.3
+matplotlib==3.11.2
+pillow==12.3.0
+plantcv==4.7
+altair==5.5.0
+PyQt5==5.15.11
+flake8==7.4.1
+tensorflow==2.21.0
+scikit-learn==1.9.1

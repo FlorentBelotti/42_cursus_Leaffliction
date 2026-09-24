@@ -11,10 +11,15 @@ import os
 import shutil
 import sys
 import tempfile
+from pathlib import Path
 
 from sklearn.model_selection import train_test_split
 from tensorflow import keras
 from tensorflow.keras import layers
+
+from leaffliction.dataset_balancing.dataset_balancing_pipeline import (
+    run_dataset_balancing,
+)
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 IMG_SHAPE = (256, 256, 3)
@@ -50,10 +55,35 @@ def split_train_val(paths, labels, val_ratio=0.2, seed=42):
     return train_paths, train_labels, val_paths, val_labels
 
 
-def augment_and_preprocess(paths, labels, dst_dir):
-    # TODO: équilibrer/augmenter les classes et sauvegarder les images
-    # obtenues dans dst_dir (celles à inclure dans le .zip final)
-    raise NotImplementedError
+def copy_images(paths, labels, dst_dir):
+    # recrée l'arborescence dst_dir/<label>/<image>
+    for path, label in zip(paths, labels):
+        class_dir = os.path.join(dst_dir, label)
+        os.makedirs(class_dir, exist_ok=True)
+        shutil.copy2(path, class_dir)
+
+
+def augment_training_set(paths, labels, dst_dir):
+    # équilibrage de la Partie 2 (Florent) appliqué au seul train set :
+    # aucune variante d'une image de validation ne fuit dans le train
+    with tempfile.TemporaryDirectory() as staging_dir:
+        copy_images(paths, labels, staging_dir)
+        run_dataset_balancing(Path(staging_dir), Path(dst_dir),
+                              should_overwrite_destination=True)
+
+
+def load_split(directory, classes, shuffle):
+    # class_names fixe l'ordre des labels (index -> nom de classe)
+    return keras.utils.image_dataset_from_directory(
+        directory,
+        labels="inferred",
+        label_mode="int",
+        class_names=classes,
+        image_size=IMG_SHAPE[:2],
+        batch_size=32,
+        shuffle=shuffle,
+        seed=42,
+    )
 
 
 def build_model(num_classes, input_shape=IMG_SHAPE):
@@ -85,11 +115,13 @@ def train_model(model, train_data, val_data, epochs=10):
     return model.fit(train_data, validation_data=val_data, epochs=epochs)
 
 
-def save_bundle(model, augmented_dir, out_zip):
-    # regroupe le modèle entraîné + les images augmentées dans out_zip
+def save_bundle(model, classes, images_dir, out_zip):
+    # regroupe modèle entraîné + noms des classes + images dans out_zip
     with tempfile.TemporaryDirectory() as tmp_dir:
         model.save(os.path.join(tmp_dir, "model.keras"))
-        shutil.copytree(augmented_dir, os.path.join(tmp_dir, "images"))
+        with open(os.path.join(tmp_dir, "classes.txt"), "w") as f:
+            f.write("\n".join(classes) + "\n")
+        shutil.copytree(images_dir, os.path.join(tmp_dir, "images"))
         archive_base, _ = os.path.splitext(out_zip)
         shutil.make_archive(archive_base, "zip", tmp_dir)
     print(f"Saved bundle to '{out_zip}'")
@@ -125,15 +157,19 @@ def main():
     print(f"Train: {len(train_paths)} image(s), "
           f"Val: {len(val_paths)} image(s)")
 
-    model = build_model(num_classes=len(classes))
-    model.summary()
+    with tempfile.TemporaryDirectory() as images_dir:
+        train_dir = os.path.join(images_dir, "train")
+        val_dir = os.path.join(images_dir, "validation")
+        augment_training_set(train_paths, train_labels, train_dir)
+        copy_images(val_paths, val_labels, val_dir)
 
-    # TODO: une fois augment_and_preprocess() prêt (Partie 2 - collègue) :
-    # train_data = augment_and_preprocess(train_paths, train_labels, ...)
-    # val_data = augment_and_preprocess(val_paths, val_labels, ...)
-    # train_model(model, train_data, val_data, epochs=args.epochs)
-    # save_bundle(model, augmented_dir, args.output)
-    print("Waiting for augment_and_preprocess() before training.")
+        train_data = load_split(train_dir, classes, shuffle=True)
+        val_data = load_split(val_dir, classes, shuffle=False)
+
+        model = build_model(num_classes=len(classes))
+        model.summary()
+        train_model(model, train_data, val_data, epochs=args.epochs)
+        save_bundle(model, classes, images_dir, args.output)
 
 
 if __name__ == "__main__":
