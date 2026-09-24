@@ -9,7 +9,8 @@ Classification de maladies de feuilles par computer vision (sujet 42 - Leafflict
 source .venv/bin/activate
 ```
 
-`setup.sh` crée un virtualenv `.venv` et installe les dépendances listées dans
+`setup.sh` crée un virtualenv dans `/goinfre/$USER/leaffliction_venv` (modifiable
+via `VENV_DIR`), le lie en `.venv` et installe les dépendances listées dans
 `requirements.txt` (numpy, matplotlib, plantcv, PyQt5, flake8, tensorflow,
 scikit-learn).
 
