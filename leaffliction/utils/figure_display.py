@@ -35,5 +35,5 @@ def display_figure_when_display_is_available(figure):
         pyplot.show()
         return True
     print(HEADLESS_HINT_MESSAGE)
-    pyplot.close(figure)
+    pyplot.close("all")
     return False

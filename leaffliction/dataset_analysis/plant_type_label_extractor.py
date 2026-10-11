@@ -1,11 +1,6 @@
-"""Derive the plant label used to title the distribution charts."""
+"""Derive the title of the distribution charts from a plant label."""
 
 CHART_TITLE_SUFFIX = " class distribution"
-
-
-def extract_plant_type_label_from_directory_path(directory_path):
-    """Return the analysed directory name, used as the plant label."""
-    return directory_path.name
 
 
 def build_chart_title_from_plant_type_label(plant_type_label):

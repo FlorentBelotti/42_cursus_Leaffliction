@@ -7,4 +7,4 @@ dst_directory/
 verification_output/
 images/
 leaves/
-en.subject.pdf
+*.pdf
